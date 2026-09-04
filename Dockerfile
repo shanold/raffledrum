@@ -1,5 +1,14 @@
 FROM node:22-bookworm-slim AS build
 
+WORKDIR /app
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci
+COPY . .
+RUN npm run db:generate && npm run build
+
+
+FROM node:22-bookworm-slim AS runtime
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && update-ca-certificates \
@@ -7,16 +16,8 @@ RUN apt-get update \
     && npm install --global wrangler@4.129.0
 
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV WRANGLER_SEND_METRICS=false
 
-WORKDIR /app
-COPY package.json package-lock.json .npmrc ./
-RUN npm ci
-COPY . .
-RUN npm run db:generate && npm run build
-
-FROM node:22-bookworm-slim AS runtime
-
-RUN npm install --global wrangler@4.92.0
 WORKDIR /app
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/drizzle ./drizzle
