@@ -1,0 +1,1 @@
+.popup-ok,.popup-remove{min-width:110px;border:1px solid var(--line);border-radius:11px;padding:11px 18px;font-weight:800}.popup-ok{border-color:var(--gold);background:var(--gold);color:#151722}.popup-remove{display:flex;align-items:center;justify-content:center;gap:7px;background:transparent;color:#ffc2cc}
