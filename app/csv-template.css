@@ -1,0 +1,30 @@
+.csv-template-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 15px;
+  border: 1px solid rgba(78, 229, 139, 0.35);
+  border-radius: 10px;
+  background: rgba(78, 229, 139, 0.08);
+  color: #9af5bd;
+  padding: 10px;
+  text-decoration: none;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+.csv-template-link:hover {
+  background: rgba(78, 229, 139, 0.14);
+  border-color: rgba(78, 229, 139, 0.55);
+}
+.csv-template-link svg {
+  width: 16px;
+  height: 16px;
+}
+.csv-template-help {
+  margin: 6px 0 0;
+  color: #7f89a2;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  text-align: center;
+}

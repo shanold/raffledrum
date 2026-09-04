@@ -13,6 +13,7 @@ import {
   LockKeyhole,
   LogIn,
   LogOut,
+  MonitorUp,
   RotateCcw,
   ShieldCheck,
   Trash2,
@@ -75,7 +76,10 @@ const samples: string[] = [];
 const colors = ["#fff4b8", "#c8f3ff", "#ffd5e5", "#d9ffc8", "#eee0ff"];
 function drumDisplayName(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  return [parts[0] ?? "", ...parts.slice(1).map((part) => part[0]?.toUpperCase())]
+  return [
+    parts[0] ?? "",
+    ...parts.slice(1).map((part) => part[0]?.toUpperCase()),
+  ]
     .filter(Boolean)
     .join(" ");
 }
@@ -178,6 +182,86 @@ function expandEntries(value: string, firstTicketText: string) {
   return { tickets, error: null };
 }
 
+function csvToEntryText(value: string) {
+  const rows = value
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .map((line, index) => ({ line, number: index + 1 }))
+    .filter(({ line }) => line.trim());
+  const parseRow = (line: string) => {
+    const cells: string[] = [];
+    let cell = "",
+      quoted = false;
+    for (let index = 0; index < line.length; index++) {
+      const char = line[index];
+      if (char === '"') {
+        if (quoted && line[index + 1] === '"') {
+          cell += '"';
+          index++;
+        } else quoted = !quoted;
+      } else if (char === "," && !quoted) {
+        cells.push(cell.trim());
+        cell = "";
+      } else cell += char;
+    }
+    if (quoted) throw new Error("has an unclosed quotation mark");
+    cells.push(cell.trim());
+    return cells;
+  };
+  if (!rows.length) return { text: "", error: "The CSV file is empty." };
+  const entries: string[] = [];
+  for (const [position, row] of rows.entries()) {
+    let cells: string[];
+    try {
+      cells = parseRow(row.line);
+    } catch (reason) {
+      return {
+        text: "",
+        error: `CSV row ${row.number} ${reason instanceof Error ? reason.message : "is invalid"}.`,
+      };
+    }
+    if (
+      position === 0 &&
+      cells[0]?.toLowerCase() === "name" &&
+      cells[1]?.toLowerCase() === "tickets"
+    )
+      continue;
+    if (cells.length !== 2)
+      return {
+        text: "",
+        error: `CSV row ${row.number} must contain exactly two columns: Name and Tickets. Put comma-formatted values such as 50,000 inside quotes.`,
+      };
+    const [name, ticketSpec] = cells;
+    if (!name)
+      return { text: "", error: `CSV row ${row.number} is missing a name.` };
+    const range = ticketSpec.match(/^([\d,]+)\s*[-–]\s*([\d,]+)$/);
+    if (range) {
+      const start = parseTicketCount(range[1]),
+        end = parseTicketCount(range[2]);
+      if (!start || !end || end < start)
+        return {
+          text: "",
+          error: `CSV row ${row.number} has an invalid ticket range. Use a range such as 45-55.`,
+        };
+      entries.push(`${name} #${start}-${end}`);
+      continue;
+    }
+    const count = parseTicketCount(ticketSpec);
+    if (!count)
+      return {
+        text: "",
+        error: `CSV row ${row.number} has an invalid ticket value. Use a quantity such as 50 or a range such as 45-55.`,
+      };
+    entries.push(`${name} x ${count}`);
+  }
+  if (!entries.length)
+    return {
+      text: "",
+      error: "The CSV file contains a header but no entries.",
+    };
+  return { text: entries.join("\n"), error: null };
+}
+
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null),
     fileInputRef = useRef<HTMLInputElement>(null),
@@ -199,6 +283,7 @@ export default function Home() {
   const [winner, setWinner] = useState<string | null>(null),
     [winnerNumber, setWinnerNumber] = useState<number | null>(null),
     [history, setHistory] = useState<string[]>([]),
+    [storedTickets, setStoredTickets] = useState<Ticket[]>([]),
     [spinning, setSpinning] = useState(false),
     [message, setMessage] = useState("Add entries to begin."),
     [celebrating, setCelebrating] = useState(false);
@@ -224,22 +309,21 @@ export default function Home() {
     [authPassword, setAuthPassword] = useState(""),
     [authError, setAuthError] = useState(""),
     [authBusy, setAuthBusy] = useState(false);
+  const [organizerLockEnabled, setOrganizerLockEnabled] = useState(true);
   const seedSlips = useCallback((list: string[]) => {
     movingRef.current = false;
-    slipsRef.current = list
-      .slice(0, 80)
-      .map((name, i) => ({
-        name,
-        x: 320 + (Math.random() - 0.5) * 230,
-        y: 215 + Math.random() * 125,
-        vx: 0,
-        vy: 0,
-        a: (Math.random() - 0.5) * 0.7,
-        va: 0,
-        w: Math.min(108, Math.max(66, 34 + drumDisplayName(name).length * 7)),
-        h: 28,
-        color: colors[i % colors.length],
-      }));
+    slipsRef.current = list.slice(0, 80).map((name, i) => ({
+      name,
+      x: 320 + (Math.random() - 0.5) * 230,
+      y: 215 + Math.random() * 125,
+      vx: 0,
+      vy: 0,
+      a: (Math.random() - 0.5) * 0.7,
+      va: 0,
+      w: Math.min(108, Math.max(66, 34 + drumDisplayName(name).length * 7)),
+      h: 28,
+      color: colors[i % colors.length],
+    }));
   }, []);
   useEffect(() => seedSlips(names), [names, seedSlips]);
   useEffect(() => {
@@ -255,17 +339,59 @@ export default function Home() {
   useEffect(() => {
     void fetch("/api/organizer/session", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data) =>
+      .then((data) => {
+        setOrganizerLockEnabled(data.lockEnabled !== false);
         setAuthState(
           data.authenticated
             ? "signed-in"
             : data.configured
               ? "signed-out"
               : "unconfigured",
-        ),
-      )
+        );
+      })
       .catch(() => setAuthState("signed-out"));
   }, []);
+  useEffect(() => {
+    if (authState !== "signed-in") return;
+    const displayState = {
+      names: names.slice(0, 80).map(drumDisplayName),
+      ticketCount: names.length,
+      spinning,
+      winner: winner ? drumDisplayName(winner) : null,
+      winnerNumber,
+      message,
+      celebrating,
+      verified: !!verifiedRaffle,
+      qrCode: verifiedRaffle ? qrCode : "",
+      shareUrl: verifiedRaffle ? shareUrl : "",
+      storedTickets: storedTickets.map((ticket) => ({
+        name: drumDisplayName(ticket.name),
+        number: ticket.number,
+      })),
+      updatedAt: Date.now(),
+    };
+    window.localStorage.setItem(
+      "raffle-drum-public-display",
+      JSON.stringify(displayState),
+    );
+    if ("BroadcastChannel" in window) {
+      const channel = new BroadcastChannel("raffle-drum-public-display");
+      channel.postMessage(displayState);
+      channel.close();
+    }
+  }, [
+    authState,
+    celebrating,
+    message,
+    names,
+    qrCode,
+    shareUrl,
+    spinning,
+    storedTickets,
+    verifiedRaffle,
+    winner,
+    winnerNumber,
+  ]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -428,6 +554,7 @@ export default function Home() {
     setWinner(null);
     setWinnerNumber(null);
     setHistory([]);
+    setStoredTickets([]);
     setMessage(`${tickets.length.toLocaleString()} tickets loaded.`);
   };
   const load = () => {
@@ -631,6 +758,10 @@ export default function Home() {
       nextNumbers = ticketNumbers.filter((_, i) => i !== at);
     setNames(nextNames);
     setTicketNumbers(nextNumbers);
+    setStoredTickets((stored) => [
+      { name: winner, number: winnerNumber },
+      ...stored,
+    ]);
     setWinner(null);
     setWinnerNumber(null);
     setMessage(`${nextNames.length.toLocaleString()} tickets remain.`);
@@ -639,10 +770,13 @@ export default function Home() {
     if (!verifiedRaffle) return removeWinner();
     if (winnerNumber === null) return;
     try {
-      const response = await fetch(`/api/verified/${verifiedRaffle.id}/remove`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${hostSecret}` },
-        }),
+      const response = await fetch(
+          `/api/verified/${verifiedRaffle.id}/remove`,
+          {
+            method: "POST",
+            headers: { authorization: `Bearer ${hostSecret}` },
+          },
+        ),
         data = await response.json();
       if (!response.ok)
         throw new Error(data.error ?? "The ticket could not be removed.");
@@ -653,16 +787,26 @@ export default function Home() {
       setTicketNumbers(nextNumbers);
       setVerifiedRaffle((current) =>
         current
-          ? { ...current, draws: data.draws, remainingTickets: nextNames.length }
+          ? {
+              ...current,
+              draws: data.draws,
+              remainingTickets: nextNames.length,
+            }
           : current,
       );
+      setStoredTickets((stored) => [
+        { name: winner ?? "Winner", number: winnerNumber },
+        ...stored,
+      ]);
       setWinner(null);
       setWinnerNumber(null);
       setCelebrating(false);
       setMessage(`${nextNames.length.toLocaleString()} tickets remain.`);
     } catch (reason) {
       setError(
-        reason instanceof Error ? reason.message : "The ticket could not be removed.",
+        reason instanceof Error
+          ? reason.message
+          : "The ticket could not be removed.",
       );
     }
   };
@@ -695,6 +839,7 @@ export default function Home() {
     setNames(original);
     setTicketNumbers(originalTicketNumbers);
     setHistory([]);
+    setStoredTickets([]);
     setWinner(null);
     setWinnerNumber(null);
     setVerifiedRaffle(null);
@@ -720,6 +865,7 @@ export default function Home() {
       entries: text,
       settings: { firstTicket, spinSeconds },
       history,
+      storedTickets,
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], {
         type: "application/json",
@@ -751,7 +897,16 @@ export default function Home() {
       return;
     }
     try {
-      const data = JSON.parse(await file.text());
+      const fileText = await file.text();
+      if (/\.csv$/i.test(file.name) || file.type === "text/csv") {
+        const converted = csvToEntryText(fileText);
+        if (converted.error) throw new Error(converted.error);
+        setText(converted.text);
+        applyEntries(converted.text);
+        setMessage("CSV entries imported and loaded into the drum.");
+        return;
+      }
+      const data = JSON.parse(fileText);
       if (
         data?.format !== "raffle-drum-backup" ||
         data?.version !== 1 ||
@@ -776,6 +931,16 @@ export default function Home() {
           ? data.history
               .filter((x: unknown) => typeof x === "string")
               .slice(0, 1000)
+          : [],
+        importedStoredTickets = Array.isArray(data.storedTickets)
+          ? data.storedTickets
+              .filter(
+                (ticket: unknown): ticket is Ticket =>
+                  !!ticket &&
+                  typeof (ticket as Ticket).name === "string" &&
+                  Number.isSafeInteger((ticket as Ticket).number),
+              )
+              .slice(0, 1000)
           : [];
       drawRef.current++;
       movingRef.current = false;
@@ -789,6 +954,7 @@ export default function Home() {
       setTicketNumbers(importedNumbers);
       setOriginalTicketNumbers(importedNumbers);
       setHistory(importedHistory);
+      setStoredTickets(importedStoredTickets);
       setWinner(null);
       setWinnerNumber(null);
       setMessage(
@@ -911,15 +1077,26 @@ export default function Home() {
           <p className="eyebrow">FAIR DRAW • LIVE PHYSICS</p>
           <h1>Raffle Drum</h1>
         </div>
-        <button
-          className="organizer-logout"
-          onClick={() => {
-            void organizerLogout();
-          }}
-        >
-          <LogOut />
-          Lock organizer panel
-        </button>
+        <div className="header-actions">
+          <button
+            className="public-display-button"
+            onClick={() => window.open("/display", "raffle-drum-display")}
+          >
+            <MonitorUp />
+            Open public drum view
+          </button>
+          {organizerLockEnabled && (
+            <button
+              className="organizer-logout"
+              onClick={() => {
+                void organizerLogout();
+              }}
+            >
+              <LogOut />
+              Lock organizer panel
+            </button>
+          )}
+        </div>
       </header>
       <div className="workspace">
         <section className="drum-card">
@@ -935,7 +1112,9 @@ export default function Home() {
           </div>
           <button
             className="spin"
-            onClick={() => { void spin(); }}
+            onClick={() => {
+              void spin();
+            }}
             disabled={spinning || waitingForBeacon || !names.length}
           >
             {spinning
@@ -943,8 +1122,8 @@ export default function Home() {
               : waitingForBeacon
                 ? "WAITING FOR PUBLIC RANDOMNESS…"
                 : verifiedRaffle
-                    ? "DRAW VERIFIED WINNER"
-                    : "SPIN THE DRUM"}
+                  ? "DRAW VERIFIED WINNER"
+                  : "SPIN THE DRUM"}
           </button>
           <div className="status drum-status" aria-live="polite">
             <span
@@ -969,12 +1148,12 @@ export default function Home() {
                 disabled={spinning}
               >
                 <Upload />
-                Import raffle
+                Import JSON / CSV
               </button>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="application/json,.json"
+                accept="application/json,text/csv,.json,.csv"
                 hidden
                 onChange={(e) => {
                   void importRaffle(e.target.files?.[0]);
@@ -1107,6 +1286,17 @@ export default function Home() {
               <span>2 sec</span>
               <span>20 sec</span>
             </div>
+            <a
+              className="csv-template-link"
+              href="/raffle-template.csv"
+              download="raffle-template.csv"
+            >
+              <Download />
+              Download CSV template
+            </a>
+            <p className="csv-template-help">
+              Includes quantity, ticket-range, and quoted-value examples.
+            </p>
           </section>
           <section
             className={
@@ -1176,7 +1366,9 @@ export default function Home() {
                 )}
                 <button
                   className="copy-link"
-                  onClick={() => { void copyVerificationLink(); }}
+                  onClick={() => {
+                    void copyVerificationLink();
+                  }}
                 >
                   <Copy />
                   Copy public verification link
@@ -1323,9 +1515,14 @@ export default function Home() {
             </p>
           </DialogHeader>
           <DialogFooter className="sm:justify-center">
-            <button className="popup-remove" onClick={() => { void removeVerifiedWinner(); }}>
+            <button
+              className="popup-remove"
+              onClick={() => {
+                void removeVerifiedWinner();
+              }}
+            >
               <Trash2 className="size-4" />
-              Remove ticket
+              Remove &amp; Store
             </button>
             <DialogClose asChild>
               <button className="popup-ok">OK</button>

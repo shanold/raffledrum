@@ -10,17 +10,17 @@ names.
 
 Set these server-side environment variables before exposing the app publicly:
 
-~~~text
+```text
 ORGANIZER_PASSWORD_HASH=<SHA-256 hex digest of the organizer password>
 SESSION_SECRET=<long random value>
-~~~
+```
 
 Generate suitable values on Linux:
 
-~~~bash
+```bash
 printf %s 'choose-a-strong-password' | sha256sum
 openssl rand -hex 48
-~~~
+```
 
 Do not put the plain-text password in the repository. The session cookie is
 HTTP-only, same-site, time-limited, and signed by the session secret.
@@ -33,24 +33,39 @@ is retained in the `raffle-drum-data` Docker volume across upgrades and reboots.
 
 Create a `.env` file beside `docker-compose.yml`:
 
-~~~text
+```text
+LOCK_ENABLED=true
 ORGANIZER_PASSWORD_HASH=<SHA-256 hex digest of your organizer password>
 SESSION_SECRET=<long random hexadecimal value>
-~~~
+```
+
+For casual, lower-stakes drawings where the organizer panel does not need a
+password, use this instead:
+
+```text
+LOCK_ENABLED=false
+```
+
+With `LOCK_ENABLED=false`, the app opens directly to the organizer view and the
+**Lock organizer panel** button is hidden. The password hash and session secret
+may be left blank. This does not remove verified raffles, audit records, the
+public display, or any other raffle features. Anyone who can reach the main app
+can use its organizer controls, so keep `LOCK_ENABLED=true` for public or
+high-stakes deployments.
 
 Generate both values on Linux (replace the example password first):
 
-~~~bash
+```bash
 printf %s 'choose-a-strong-password' | sha256sum | cut -d' ' -f1
 openssl rand -hex 48
-~~~
+```
 
 Then build and start the app:
 
-~~~bash
+```bash
 docker compose up -d --build
 docker compose logs -f raffle-drum
-~~~
+```
 
 Open `http://SERVER-IP:3000`. The container listens on port 80 internally and
 Compose publishes it as port 3000 on the host. Change `3000:80` if you want a
@@ -96,7 +111,9 @@ import { headers } from "next/headers";
 export default async function Home() {
   const requestHeaders = await headers();
   const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
+  const encodedFullName = requestHeaders.get(
+    "oai-authenticated-user-full-name",
+  );
   const fullName =
     encodedFullName &&
     requestHeaders.get("oai-authenticated-user-full-name-encoding") ===

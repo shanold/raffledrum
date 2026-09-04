@@ -6,8 +6,9 @@ services:
     ports:
       - "3000:80"
     environment:
-      ORGANIZER_PASSWORD_HASH: "${ORGANIZER_PASSWORD_HASH}"
-      SESSION_SECRET: "${SESSION_SECRET}"
+      LOCK_ENABLED: "${LOCK_ENABLED:-true}"
+      ORGANIZER_PASSWORD_HASH: "${ORGANIZER_PASSWORD_HASH:-}"
+      SESSION_SECRET: "${SESSION_SECRET:-}"
     volumes:
       - raffle-drum-data:/data
 
