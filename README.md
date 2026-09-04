@@ -1,4 +1,7 @@
 # Raffle Drum
+<img width="1259" height="841" alt="Screenshot 2026-09-04 at 10 13 17 AM" src="https://github.com/user-attachments/assets/0c09cffd-a1e0-400f-bb21-e09ea82ac1d9" />
+
+<img width="1259" height="841" alt="Screenshot 2026-09-04 at 10 13 58 AM" src="https://github.com/user-attachments/assets/846d65c3-1d29-4cfa-9ebb-e2a4b7699301" />
 
 A physics-powered raffle drum with durable, publicly auditable drawings.
 
