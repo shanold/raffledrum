@@ -1,29 +1,6 @@
-# Raffle Drum
+# vinext-starter
 
-A physics-powered raffle drum with durable, publicly auditable drawings.
-
-## Organizer security
-
-The organizer panel and all write-capable raffle APIs require a signed organizer
-session. Public verification pages remain read-only and expose partially masked
-names.
-
-Set these server-side environment variables before exposing the app publicly:
-
-~~~text
-ORGANIZER_PASSWORD_HASH=<SHA-256 hex digest of the organizer password>
-SESSION_SECRET=<long random value>
-~~~
-
-Generate suitable values on Linux:
-
-~~~bash
-printf %s 'choose-a-strong-password' | sha256sum
-openssl rand -hex 48
-~~~
-
-Do not put the plain-text password in the repository. The session cookie is
-HTTP-only, same-site, time-limited, and signed by the session secret.
+A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
 
 ## Prerequisites
 
