@@ -8,5 +8,6 @@ services:
     environment:
       ORGANIZER_PASSWORD_HASH: "${ORGANIZER_PASSWORD_HASH}"
       SESSION_SECRET: "${SESSION_SECRET}"
+      LOCK_ENABLED: false
     volumes:
       - ./data:/data
