@@ -11,6 +11,7 @@ names.
 Set these server-side environment variables before exposing the app publicly:
 
 ```text
+LOCK_ENABLED=true enables the lock for the organizer panel to prevent people from adding tickets via URL manipulation. 
 ORGANIZER_PASSWORD_HASH=<SHA-256 hex digest of the organizer password>
 SESSION_SECRET=<long random value>
 ```
