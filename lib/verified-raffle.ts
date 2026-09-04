@@ -48,9 +48,8 @@ export function expandVerifiedEntries(value:string,firstTicketText:string){
 
 export function maskName(name:string){
   const parts=name.trim().split(/\s+/).filter(Boolean);
-  const first=parts[0]??"";
-  const maskedFirst=first.length<=2?`${first[0]??""}*`:`${first.slice(0,2)}${"*".repeat(Math.min(5,first.length-2))}`;
-  return parts.length>1?`${maskedFirst} ${parts.at(-1)![0]?.toUpperCase()}.`:maskedFirst;
+  if(!parts.length)return "";
+  return [parts[0],...parts.slice(1).map(part=>part[0]?.toUpperCase()).filter(Boolean)].join(" ");
 }
 
 export async function sha256Hex(value:string|Uint8Array){

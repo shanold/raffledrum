@@ -1,0 +1,15 @@
+services:
+  raffle-drum:
+    build: .
+    container_name: raffle-drum
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      ORGANIZER_PASSWORD_HASH: "${ORGANIZER_PASSWORD_HASH}"
+      SESSION_SECRET: "${SESSION_SECRET}"
+    volumes:
+      - raffle-drum-data:/data
+
+volumes:
+  raffle-drum-data:

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { verifiedRaffles } from "@/db/schema";
 import { expandVerifiedEntries,maskName } from "@/lib/verified-raffle";
+import { publicDraw,raffleDraws } from "@/lib/verified-history";
 
 export const dynamic="force-dynamic";
 
@@ -19,5 +20,6 @@ export async function GET(request:Request,{params}:{params:Promise<{id:string}>}
       if(found)ticket={number:found.number,name:maskName(found.name)};
     }
   }
-  return Response.json({raffle:{id:raffle.id,status:raffle.status,ticketCount:raffle.ticketCount,manifestHash:raffle.manifestHash,targetRound:raffle.targetRound,lockedAt:raffle.lockedAt,drawnAt:raffle.drawnAt,winner:raffle.winnerMasked,winnerNumber:raffle.winnerNumber,winnerIndex:raffle.winnerIndex,drandRandomness:raffle.drandRandomness,drandSignature:raffle.drandSignature},ticket});
+  const draws=raffleDraws(raffle);
+  return Response.json({raffle:{id:raffle.id,status:draws.length?"drawn":"locked",ticketCount:raffle.ticketCount,manifestHash:raffle.manifestHash,targetRound:raffle.targetRound,lockedAt:raffle.lockedAt,draws:draws.map(publicDraw)},ticket});
 }

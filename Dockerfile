@@ -6,7 +6,6 @@ RUN npm ci
 COPY . .
 RUN npm run db:generate && npm run build
 
-
 FROM node:22-bookworm-slim AS runtime
 
 RUN apt-get update \
@@ -14,10 +13,8 @@ RUN apt-get update \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global wrangler@4.129.0
-
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV WRANGLER_SEND_METRICS=false
-
 WORKDIR /app
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/drizzle ./drizzle

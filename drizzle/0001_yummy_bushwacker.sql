@@ -1,0 +1,1 @@
+ALTER TABLE `verified_raffles` ADD `draw_history` text DEFAULT '[]' NOT NULL;

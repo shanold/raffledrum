@@ -18,4 +18,5 @@ export const verifiedRaffles = sqliteTable("verified_raffles", {
   createdAt: text("created_at").notNull(),
   lockedAt: text("locked_at").notNull(),
   drawnAt: text("drawn_at"),
+  drawHistory: text("draw_history").notNull().default("[]"),
 });
