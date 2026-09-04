@@ -1,5 +1,13 @@
 FROM node:22-bookworm-slim AS build
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install --global wrangler@4.129.0
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci
