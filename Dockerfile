@@ -1,25 +1,20 @@
 FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
-
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci
-
 COPY . .
-RUN npx vinext build
-
+RUN npm run db:generate && npm run build
 
 FROM node:22-bookworm-slim AS runtime
 
+RUN npm install --global wrangler@4.92.0
 WORKDIR /app
-
-ENV NODE_ENV=production
-ENV PORT=3000
-
-COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/drizzle ./drizzle
+COPY wrangler.docker.jsonc docker-entrypoint.sh ./
+RUN chmod 0755 docker-entrypoint.sh
 
-EXPOSE 3000
-
-CMD ["./node_modules/.bin/vinext", "start", "--hostname", "0.0.0.0", "--port", "3000"]
+EXPOSE 80
+VOLUME ["/data"]
+ENTRYPOINT ["./docker-entrypoint.sh"]

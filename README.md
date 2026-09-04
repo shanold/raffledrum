@@ -1,6 +1,60 @@
-# vinext-starter
+# Raffle Drum
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+A physics-powered raffle drum with durable, publicly auditable drawings.
+
+## Organizer security
+
+The organizer panel and all write-capable raffle APIs require a signed organizer
+session. Public verification pages remain read-only and expose partially masked
+names.
+
+Set these server-side environment variables before exposing the app publicly:
+
+~~~text
+ORGANIZER_PASSWORD_HASH=<SHA-256 hex digest of the organizer password>
+SESSION_SECRET=<long random value>
+~~~
+
+Generate suitable values on Linux:
+
+~~~bash
+printf %s 'choose-a-strong-password' | sha256sum
+openssl rand -hex 48
+~~~
+
+Do not put the plain-text password in the repository. The session cookie is
+HTTP-only, same-site, time-limited, and signed by the session secret.
+
+## Docker self-hosting
+
+The included Docker setup runs the app in Cloudflare's local Worker runtime,
+which supports the same D1 database API used by verified raffles. The database
+is retained in the `raffle-drum-data` Docker volume across upgrades and reboots.
+
+Create a `.env` file beside `docker-compose.yml`:
+
+~~~text
+ORGANIZER_PASSWORD_HASH=<SHA-256 hex digest of your organizer password>
+SESSION_SECRET=<long random hexadecimal value>
+~~~
+
+Generate both values on Linux (replace the example password first):
+
+~~~bash
+printf %s 'choose-a-strong-password' | sha256sum | cut -d' ' -f1
+openssl rand -hex 48
+~~~
+
+Then build and start the app:
+
+~~~bash
+docker compose up -d --build
+docker compose logs -f raffle-drum
+~~~
+
+Open `http://SERVER-IP:3000`. The container listens on port 80 internally and
+Compose publishes it as port 3000 on the host. Change `3000:80` if you want a
+different host port. Never commit the `.env` file.
 
 ## Prerequisites
 
