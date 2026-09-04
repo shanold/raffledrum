@@ -1,0 +1,19 @@
+services:
+  raffle-drum:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: raffle-drum
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    mem_limit: 512m
+    cpus: 1.0
