@@ -36,6 +36,7 @@ Create a `.env` file beside `docker-compose.yml`:
 ~~~text
 ORGANIZER_PASSWORD_HASH=<SHA-256 hex digest of your organizer password>
 SESSION_SECRET=<long random hexadecimal value>
+LOCK_ENABLED=true Enables lock on the Raffle setup screen false allows anonymous use.
 ~~~
 
 Generate both values on Linux (replace the example password first):
