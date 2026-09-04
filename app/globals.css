@@ -8,6 +8,7 @@
 @import "./organizer.css";
 @import "./display/display.css";
 @import "./csv-template.css";
+@import "./audit-status.css";
 :root {
   --ink: #f6f7fb;
   --muted: #aab2c7;
