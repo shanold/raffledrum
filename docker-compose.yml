@@ -10,7 +10,4 @@ services:
       ORGANIZER_PASSWORD_HASH: "${ORGANIZER_PASSWORD_HASH:-}"
       SESSION_SECRET: "${SESSION_SECRET:-}"
     volumes:
-      - raffle-drum-data:/data
-
-volumes:
-  raffle-drum-data:
+      - ./data:/data
