@@ -1,6 +1,9 @@
+<img width="1259" height="841" alt="Screenshot 2026-09-04 at 10 13 17 AM" src="https://github.com/user-attachments/assets/08bc7666-8e2e-46b1-9493-4aa8ab19e456" />
 # Raffle Drum
 
-A physics-powered raffle drum with durable, publicly auditable drawings.
+A physics-powered raffle drum with durable, publicly auditable drawings.![Uploading Screenshot 2026-09-04 at 10.13.17 AM.png…]()
+
+<img width="1259" height="841" alt="Screenshot 2026-09-04 at 10 13 58 AM" src="https://github.com/user-attachments/assets/cca1c24e-6298-4a0d-bd03-cd08bccd7b0a" />
 
 ## Organizer security
 
