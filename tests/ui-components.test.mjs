@@ -50,7 +50,9 @@ test("emits the catalog's animation and scrolling utilities", async () => {
 
 test("forwards progress semantics to the primitive", async () => {
   const { Progress } = await vite.ssrLoadModule("/components/ui/progress.tsx");
-  const html = renderToStaticMarkup(React.createElement(Progress, { value: 37 }));
+  const html = renderToStaticMarkup(
+    React.createElement(Progress, { value: 37 }),
+  );
 
   assert.match(html, /aria-valuenow="37"/);
   assert.match(html, /aria-valuetext="37%"/);
@@ -82,4 +84,46 @@ test("renders sidebar skeletons deterministically", async () => {
 
   assert.equal(first, second);
   assert.match(first, /--skeleton-width:70%/);
+});
+
+test("builds reproducible privacy-safe ticket commitments", async () => {
+  const {
+    publicCommitmentManifest,
+    publicAuditHash,
+    publicAuditManifest,
+    publicAuditManifestV2,
+    publicAuditManifestV3,
+    sha256Hex,
+    ticketCommitment,
+    ticketReceiptCode,
+  } = await vite.ssrLoadModule("/lib/verified-raffle.ts");
+  const ticket = { name: "Bob Smith", number: 45583 };
+  const code = await ticketReceiptCode("private-test-seed", ticket);
+  assert.match(code, /^(?:[0-9A-F]{4}-){5}[0-9A-F]{4}$/);
+  assert.equal(code, await ticketReceiptCode("private-test-seed", ticket));
+  const commitment = await ticketCommitment(ticket, code);
+  assert.match(commitment, /^[0-9a-f]{64}$/);
+  const manifest = await publicCommitmentManifest(
+    [ticket],
+    "private-test-seed",
+  );
+  assert.equal(manifest, `Ticket,Commitment\n45583,${commitment}\n`);
+  assert.match(await sha256Hex(manifest), /^[0-9a-f]{64}$/);
+  const publicLedger = await publicAuditManifest([ticket], "private-test-seed");
+  assert.equal(
+    publicLedger,
+    `Ticket,VerificationCode,Commitment\n45583,${code},${commitment}\n`,
+  );
+  assert.equal(
+    await publicAuditHash([ticket], "private-test-seed"),
+    await sha256Hex(publicLedger),
+  );
+  assert.equal(
+    await publicAuditHash([ticket], "private-test-seed", 2),
+    await sha256Hex(await publicAuditManifestV2([ticket], "private-test-seed")),
+  );
+  assert.equal(
+    await publicAuditHash([ticket], "private-test-seed", 3),
+    await sha256Hex(await publicAuditManifestV3([ticket], "private-test-seed")),
+  );
 });

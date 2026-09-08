@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Trophy } from "lucide-react";
+import QRCode from "qrcode";
 
 type DisplayState = {
   names: string[];
@@ -46,12 +47,163 @@ export default function PublicDisplay() {
     speedRef = useRef(0),
     winnerKeyRef = useRef("");
   const revealTimerRef = useRef<number | null>(null);
+  const remoteDrawRef = useRef(0);
+  const remoteTimersRef = useRef<number[]>([]);
 
   useEffect(() => {
     const receive = (next: DisplayState) => {
       liveRef.current = next;
       setDisplay(next);
     };
+    const query = new URLSearchParams(window.location.search),
+      sessionId = query.get("session")?.trim().toUpperCase(),
+      remoteId = query.get("id")?.trim().toUpperCase();
+    if (sessionId) {
+      const poll = async () => {
+        try {
+          const response = await fetch(
+              `/api/display/${encodeURIComponent(sessionId)}`,
+              { cache: "no-store" },
+            ),
+            data = await response.json();
+          if (!response.ok) throw new Error(data.error ?? "Display unavailable.");
+          if (data.state) receive(data.state as DisplayState);
+        } catch {
+          receive({
+            names: [],
+            ticketCount: 0,
+            spinning: false,
+            winner: null,
+            winnerNumber: null,
+            message: "This display link expired or lost its connection.",
+            celebrating: false,
+            verified: false,
+            qrCode: "",
+            shareUrl: "",
+            storedTickets: [],
+            updatedAt: Date.now(),
+          });
+        }
+      };
+      void poll();
+      const interval = window.setInterval(() => void poll(), 750);
+      return () => window.clearInterval(interval);
+    }
+    if (remoteId) {
+      const spinSeconds = Math.min(
+        60,
+        Math.max(1, Number(query.get("spin")) || 6),
+      );
+      const schedule = (callback: () => void, delay: number) => {
+        const timer = window.setTimeout(callback, delay);
+        remoteTimersRef.current.push(timer);
+      };
+      const poll = async () => {
+        try {
+          const response = await fetch(
+              `/api/verified/${encodeURIComponent(remoteId)}`,
+              { cache: "no-store" },
+            ),
+            data = await response.json();
+          if (!response.ok) throw new Error(data.error ?? "Raffle unavailable.");
+          const raffle = data.raffle,
+            draws = Array.isArray(raffle.draws) ? raffle.draws : [],
+            latest = draws.at(-1),
+            storedTickets = draws
+              .filter((draw: { removed?: boolean }) => draw.removed)
+              .map(
+                (draw: { winnerMasked: string; winnerNumber: number }) => ({
+                  name: draw.winnerMasked,
+                  number: draw.winnerNumber,
+                }),
+              );
+          const base: DisplayState = {
+            names: Array.from(
+              { length: Math.min(80, raffle.ticketCount) },
+              () => "Ticket",
+            ),
+            ticketCount: raffle.ticketCount,
+            spinning: false,
+            winner: null,
+            winnerNumber: null,
+            message: `${remoteId} is locked and ready.`,
+            celebrating: false,
+            verified: true,
+            qrCode: await QRCode.toDataURL(
+              `${window.location.origin}/verify/${remoteId}`,
+              { width: 220, margin: 1 },
+            ),
+            shareUrl: `${window.location.origin}/verify/${remoteId}`,
+            storedTickets,
+            updatedAt: Date.now(),
+          };
+          if (latest && latest.sequence > remoteDrawRef.current) {
+            remoteDrawRef.current = latest.sequence;
+            receive({
+              ...base,
+              spinning: true,
+              message: "The organizer started the verified draw…",
+            });
+            schedule(
+              () =>
+                receive({
+                  ...base,
+                  spinning: true,
+                  message: "The drum is slowing down…",
+                }),
+              spinSeconds * 1000,
+            );
+            schedule(
+              () =>
+                receive({
+                  ...base,
+                  winner: latest.winnerMasked,
+                  winnerNumber: latest.winnerNumber,
+                  message: `${latest.winnerMasked} wins with ticket #${Number(latest.winnerNumber).toLocaleString()}!`,
+                  celebrating: true,
+                }),
+              spinSeconds * 1000 + 2800,
+            );
+          } else if (!latest) receive(base);
+          else {
+            const merged = liveRef.current
+              ? {
+                  ...liveRef.current,
+                  ticketCount: raffle.ticketCount,
+                  storedTickets,
+                  qrCode: base.qrCode,
+                  shareUrl: base.shareUrl,
+                  updatedAt: Date.now(),
+                }
+              : base;
+            liveRef.current = merged;
+            setDisplay(merged);
+          }
+        } catch {
+          receive({
+            names: [],
+            ticketCount: 0,
+            spinning: false,
+            winner: null,
+            winnerNumber: null,
+            message: "Waiting to reconnect to the raffle…",
+            celebrating: false,
+            verified: false,
+            qrCode: "",
+            shareUrl: "",
+            storedTickets: [],
+            updatedAt: Date.now(),
+          });
+        }
+      };
+      void poll();
+      const interval = window.setInterval(() => void poll(), 1000);
+      return () => {
+        window.clearInterval(interval);
+        remoteTimersRef.current.forEach(window.clearTimeout);
+        remoteTimersRef.current = [];
+      };
+    }
     try {
       const saved = localStorage.getItem(key);
       if (saved) receive(JSON.parse(saved));

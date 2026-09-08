@@ -184,6 +184,133 @@ export async function manifestHash(tickets: VerifiedTicket[]) {
   );
 }
 
+export async function ticketReceiptCode(seed: string, ticket: VerifiedTicket) {
+  const hash = await sha256Hex(
+    `raffle-drum-receipt-v1|${seed}|${ticket.number}|${ticket.name.normalize("NFC")}`,
+  );
+  return hash
+    .slice(0, 24)
+    .toUpperCase()
+    .match(/.{1,4}/g)!
+    .join("-");
+}
+
+export async function ticketCommitment(
+  ticket: VerifiedTicket,
+  receiptCode: string,
+) {
+  return sha256Hex(
+    `raffle-drum-ticket-v1|${ticket.number}|${ticket.name.normalize("NFC")}|${receiptCode.toUpperCase()}`,
+  );
+}
+
+export async function publicCommitmentManifest(
+  tickets: VerifiedTicket[],
+  seed: string,
+) {
+  const rows = ["Ticket,Commitment"];
+  for (let start = 0; start < tickets.length; start += 500) {
+    rows.push(
+      ...(await Promise.all(
+        tickets.slice(start, start + 500).map(async (ticket) => {
+          const code = await ticketReceiptCode(seed, ticket);
+          return `${ticket.number},${await ticketCommitment(ticket, code)}`;
+        }),
+      )),
+    );
+  }
+  return `${rows.join("\n")}\n`;
+}
+
+function csvCell(value: string | number) {
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+/** Public, privacy-safe ledger used by audit-v2 drawings. Row order is the draw order. */
+export async function publicAuditManifestV2(
+  tickets: VerifiedTicket[],
+  seed: string,
+) {
+  const rows = ["Ticket,DisplayName,Commitment"];
+  for (let start = 0; start < tickets.length; start += 500) {
+    rows.push(
+      ...(await Promise.all(
+        tickets.slice(start, start + 500).map(async (ticket) => {
+          const code = await ticketReceiptCode(seed, ticket);
+          return [
+            ticket.number,
+            csvCell(maskName(ticket.name)),
+            await ticketCommitment(ticket, code),
+          ].join(",");
+        }),
+      )),
+    );
+  }
+  return `${rows.join("\n")}\n`;
+}
+
+/** Audit-v3 publishes the code so any visitor can verify a name without organizer access. */
+export async function publicAuditManifestV3(
+  tickets: VerifiedTicket[],
+  seed: string,
+) {
+  const rows = ["Ticket,DisplayName,VerificationCode,Commitment"];
+  for (let start = 0; start < tickets.length; start += 500) {
+    rows.push(
+      ...(await Promise.all(
+        tickets.slice(start, start + 500).map(async (ticket) => {
+          const code = await ticketReceiptCode(seed, ticket);
+          return [
+            ticket.number,
+            csvCell(maskName(ticket.name)),
+            code,
+            await ticketCommitment(ticket, code),
+          ].join(",");
+        }),
+      )),
+    );
+  }
+  return `${rows.join("\n")}\n`;
+}
+
+/** Audit-v4 omits display names from the downloadable public ledger. */
+export async function publicAuditManifest(
+  tickets: VerifiedTicket[],
+  seed: string,
+) {
+  const rows = ["Ticket,VerificationCode,Commitment"];
+  for (let start = 0; start < tickets.length; start += 500) {
+    rows.push(
+      ...(await Promise.all(
+        tickets.slice(start, start + 500).map(async (ticket) => {
+          const code = await ticketReceiptCode(seed, ticket);
+          return [
+            ticket.number,
+            code,
+            await ticketCommitment(ticket, code),
+          ].join(",");
+        }),
+      )),
+    );
+  }
+  return `${rows.join("\n")}\n`;
+}
+
+export async function publicAuditHash(
+  tickets: VerifiedTicket[],
+  seed: string,
+  auditVersion = 4,
+) {
+  return sha256Hex(
+    auditVersion >= 4
+      ? await publicAuditManifest(tickets, seed)
+      : auditVersion >= 3
+        ? await publicAuditManifestV3(tickets, seed)
+      : await publicAuditManifestV2(tickets, seed),
+  );
+}
+
 export function randomToken(bytes = 24) {
   const value = new Uint8Array(bytes);
   crypto.getRandomValues(value);

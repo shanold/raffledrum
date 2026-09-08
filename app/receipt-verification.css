@@ -1,0 +1,96 @@
+.receipt-check {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 17px;
+}
+.receipt-check h2 {
+  font-size: 1.05rem;
+}
+.receipt-check > p {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.receipt-fields {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 9px;
+}
+.receipt-fields label {
+  min-width: 0;
+}
+.receipt-fields label span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+.receipt-fields input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #091226;
+  color: var(--ink);
+  padding: 11px;
+}
+.receipt-fields .receipt-code {
+  grid-column: 1/-1;
+}
+.receipt-check > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 10px;
+  border: 0;
+  border-radius: 10px;
+  background: #4ee58b;
+  color: #08170f;
+  padding: 11px;
+  font-weight: 900;
+}
+.receipt-check > button:disabled {
+  opacity: 0.45;
+}
+.receipt-check > button svg {
+  width: 17px;
+}
+.receipt-pass {
+  color: #75f0aa !important;
+  font-weight: 800;
+}
+.receipt-fail {
+  color: #ffc2cc !important;
+  font-weight: 800;
+}
+.manifest-download {
+  display: block;
+  margin-top: 14px;
+  border: 1px solid rgba(159, 181, 231, 0.35);
+  border-radius: 10px;
+  color: #b9caef;
+  padding: 10px;
+  text-align: center;
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+.receipt-check > small {
+  display: block;
+  margin-top: 6px;
+  color: #7f89a2;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  text-align: center;
+}
+@media (max-width: 520px) {
+  .receipt-fields {
+    grid-template-columns: 1fr;
+  }
+  .receipt-fields .receipt-code {
+    grid-column: auto;
+  }
+}

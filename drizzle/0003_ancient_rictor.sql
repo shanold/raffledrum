@@ -1,0 +1,1 @@
+ALTER TABLE `verified_raffles` ADD `audit_version` integer DEFAULT 1 NOT NULL;

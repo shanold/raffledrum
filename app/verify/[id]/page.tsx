@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { ExternalLink, Search, ShieldCheck } from "lucide-react";
-import { deterministicIndex } from "@/lib/verified-raffle";
+import { deterministicIndex, sha256Hex, ticketCommitment } from "@/lib/verified-raffle";
 
 type PublicDraw = {
   sequence: number;
   ticketCount: number;
   manifestHash: string;
+  publicManifestHash?: string | null;
   targetRound: number;
   drandRandomness: string;
   drandSignature: string;
@@ -25,8 +26,15 @@ type PublicRaffle = {
   manifestHash: string;
   targetRound: number;
   lockedAt: string;
+  publicManifestHash?: string | null;
+  auditVersion: number;
   draws: PublicDraw[];
 };
+
+function ticketNumberFromLedgerRow(row: string) {
+  const match = row.match(/^(\d+),/);
+  return match ? Number(match[1]) : null;
+}
 
 export default function VerifyRaffle() {
   const params = useParams<{ id: string }>(),
@@ -35,9 +43,17 @@ export default function VerifyRaffle() {
     [error, setError] = useState(""),
     [ticket, setTicket] = useState(""),
     [ticketResult, setTicketResult] = useState<
-      { number: number; name: string } | null | undefined
+      { number: number; name: string; commitment?: string } | null | undefined
     >(undefined),
     [checking, setChecking] = useState(false),
+    [ledgerStatus, setLedgerStatus] = useState<
+      "checking" | "passed" | "failed" | "legacy"
+    >("checking"),
+    [receiptTicket, setReceiptTicket] = useState(""),
+    [receiptName, setReceiptName] = useState(""),
+    [receiptCode, setReceiptCode] = useState(""),
+    [receiptResult, setReceiptResult] = useState<boolean | null>(null),
+    [receiptChecking, setReceiptChecking] = useState(false),
     [mathStatus, setMathStatus] = useState<
       "checking" | "passed" | "failed" | "error"
     >("checking");
@@ -58,17 +74,73 @@ export default function VerifyRaffle() {
   useEffect(() => {
     if (!latest) return;
     setMathStatus("checking");
-    void deterministicIndex(
-      latest.manifestHash,
-      latest.targetRound,
-      latest.drandRandomness,
-      latest.ticketCount,
-    )
-      .then((index) =>
-        setMathStatus(index === latest.winnerIndex ? "passed" : "failed"),
+    if (raffle.auditVersion < 2 || !raffle.publicManifestHash) {
+      setLedgerStatus("legacy");
+      void deterministicIndex(
+        latest.manifestHash,
+        latest.targetRound,
+        latest.drandRandomness,
+        latest.ticketCount,
       )
-      .catch(() => setMathStatus("error"));
-  }, [latest]);
+        .then((index) =>
+          setMathStatus(index === latest.winnerIndex ? "passed" : "failed"),
+        )
+        .catch(() => setMathStatus("error"));
+      return;
+    }
+    setLedgerStatus("checking");
+    void fetch(`/api/verified/${encodeURIComponent(id)}/manifest`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Public ledger is unavailable.");
+        const ledger = await response.text();
+        if ((await sha256Hex(ledger)) !== raffle.publicManifestHash)
+          throw new Error("Public ledger fingerprint mismatch.");
+        const lines = ledger.trimEnd().split("\n");
+        const expectedHeader =
+          raffle.auditVersion >= 4
+            ? "Ticket,VerificationCode,Commitment"
+            : raffle.auditVersion >= 3
+            ? "Ticket,DisplayName,VerificationCode,Commitment"
+            : "Ticket,DisplayName,Commitment";
+        if (lines[0] !== expectedHeader)
+          throw new Error("Public ledger format mismatch.");
+        const originalRows = lines.slice(1);
+        for (let drawIndex = 0; drawIndex < raffle.draws.length; drawIndex++) {
+          const draw = raffle.draws[drawIndex];
+          const removed = new Set(
+            raffle.draws
+              .slice(0, drawIndex)
+              .filter((earlier) => earlier.removed)
+              .map((earlier) => earlier.winnerNumber),
+          );
+          const rows = originalRows.filter((row) => {
+            const number = ticketNumberFromLedgerRow(row);
+            return number !== null && !removed.has(number);
+          });
+          const candidate = `${lines[0]}\n${rows.join("\n")}\n`;
+          const candidateHash = await sha256Hex(candidate);
+          if (candidateHash !== draw.manifestHash || rows.length !== draw.ticketCount)
+            throw new Error("Draw ledger mismatch.");
+          const index = await deterministicIndex(
+            candidateHash,
+            draw.targetRound,
+            draw.drandRandomness,
+            rows.length,
+          );
+          if (
+            index !== draw.winnerIndex ||
+            ticketNumberFromLedgerRow(rows[index]) !== draw.winnerNumber
+          )
+            throw new Error("Draw result mismatch.");
+        }
+        setLedgerStatus("passed");
+        setMathStatus("passed");
+      })
+      .catch(() => {
+        setLedgerStatus("failed");
+        setMathStatus("failed");
+      });
+  }, [id, latest, raffle]);
   const checkTicket = async () => {
     setChecking(true);
     try {
@@ -84,6 +156,33 @@ export default function VerifyRaffle() {
       );
     } finally {
       setChecking(false);
+    }
+  };
+  const checkReceipt = async () => {
+    setReceiptChecking(true);
+    setReceiptResult(null);
+    try {
+      const number = Number(receiptTicket.replaceAll(",", ""));
+      if (!Number.isSafeInteger(number) || number < 1)
+        throw new Error("Enter a valid ticket number.");
+      const response = await fetch(
+          `/api/verified/${encodeURIComponent(id)}?ticket=${encodeURIComponent(String(number))}`,
+        ),
+        data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Ticket check failed.");
+      if (!data.ticket?.commitment) {
+        setReceiptResult(false);
+        return;
+      }
+      const calculated = await ticketCommitment(
+        { number, name: receiptName.trim() },
+        receiptCode.trim(),
+      );
+      setReceiptResult(calculated === data.ticket.commitment);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Ticket check failed.");
+    } finally {
+      setReceiptChecking(false);
     }
   };
   if (error)
@@ -164,6 +263,32 @@ export default function VerifyRaffle() {
             <span>Original list fingerprint</span>
             <code>{raffle.manifestHash}</code>
           </div>
+          {raffle.publicManifestHash && (
+            <div className="wide">
+              <span>Public ticket-ledger fingerprint</span>
+              <code>{raffle.publicManifestHash}</code>
+            </div>
+          )}
+          {raffle.auditVersion >= 2 && (
+            <div className="wide">
+              <span>Public ledger check</span>
+              <strong
+                className={
+                  ledgerStatus === "passed"
+                    ? "pass"
+                    : ledgerStatus === "failed"
+                      ? "fail"
+                      : ""
+                }
+              >
+                {ledgerStatus === "passed"
+                  ? "Passed — published tickets match the locked fingerprint"
+                  : ledgerStatus === "failed"
+                    ? "Failed — the published ledger or a draw does not match"
+                    : "Checking published tickets…"}
+              </strong>
+            </div>
+          )}
           {latest && (
             <>
               <div>
@@ -236,6 +361,89 @@ export default function VerifyRaffle() {
             </p>
           )}
         </section>
+        {raffle.auditVersion >= 2 && raffle.publicManifestHash && (
+          <section className="receipt-check">
+            {raffle.auditVersion >= 3 && (
+              <>
+                <h2>Verify a name and ticket</h2>
+                <p>
+                  Copy the public verification code for this ticket from the
+                  audit ledger below, then enter the exact full name and ticket
+                  number. No organizer access is needed.
+                </p>
+                <div className="receipt-fields">
+                  <label>
+                    <span>Exact full name</span>
+                    <input
+                      value={receiptName}
+                      onChange={(event) => setReceiptName(event.target.value)}
+                      placeholder="Bob Smith"
+                    />
+                  </label>
+                  <label>
+                    <span>Ticket number</span>
+                    <input
+                      inputMode="numeric"
+                      value={receiptTicket}
+                      onChange={(event) => setReceiptTicket(event.target.value)}
+                      placeholder="45,583"
+                    />
+                  </label>
+                  <label className="receipt-code">
+                    <span>Public verification code</span>
+                    <input
+                      value={receiptCode}
+                      onChange={(event) => setReceiptCode(event.target.value)}
+                      placeholder="AB12-CD34-EF56-7890-AB12-CD34"
+                    />
+                  </label>
+                </div>
+                <button
+                  onClick={() => void checkReceipt()}
+                  disabled={
+                    receiptChecking ||
+                    !receiptName.trim() ||
+                    !receiptTicket.trim() ||
+                    !receiptCode.trim()
+                  }
+                >
+                  <ShieldCheck />
+                  {receiptChecking ? "Verifying…" : "Verify ticket owner"}
+                </button>
+                {receiptResult === true && (
+                  <p className="receipt-pass">
+                    ✓ This exact name and ticket were frozen into the raffle
+                    before the draw.
+                  </p>
+                )}
+                {receiptResult === false && (
+                  <p className="receipt-fail">
+                    The name, ticket number, and public code do not match the
+                    locked commitment.
+                  </p>
+                )}
+              </>
+            )}
+            <h2>Independently audit this raffle</h2>
+            <p>
+              This page downloads the frozen public ticket ledger and checks
+              its SHA-256 fingerprint, every draw&apos;s eligible ticket list,
+              winner index, and winning ticket in your browser. No organizer
+              password or private code is required.
+            </p>
+            <a
+              className="manifest-download"
+              href={`/api/verified/${encodeURIComponent(id)}/manifest`}
+            >
+              Download the public audit ledger
+            </a>
+            <small>
+              The ledger contains ticket numbers, public verification codes,
+              and commitments—never the organizer password or participant
+              names.
+            </small>
+          </section>
+        )}
         <a
           className="drand-link"
           href={`https://api.drand.sh/v2/beacons/quicknet/rounds/${latest?.targetRound ?? raffle.targetRound}`}

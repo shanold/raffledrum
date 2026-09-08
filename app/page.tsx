@@ -43,6 +43,7 @@ type Slip = {
   color: string;
 };
 type Ticket = { name: string; number: number };
+type DisplaySession = { id: string; controlKey: string; expiresAt: string };
 type VerifiedDraw = {
   sequence: number;
   ticketCount: number;
@@ -62,6 +63,8 @@ type VerifiedClient = {
   ticketCount: number;
   remainingTickets?: number;
   manifestHash: string;
+  publicManifestHash?: string;
+  auditVersion?: number;
   targetRound: number;
   lockedAt?: string;
   draws?: VerifiedDraw[];
@@ -310,6 +313,7 @@ export default function Home() {
     [authError, setAuthError] = useState(""),
     [authBusy, setAuthBusy] = useState(false);
   const [organizerLockEnabled, setOrganizerLockEnabled] = useState(true);
+  const [displaySession, setDisplaySession] = useState<DisplaySession | null>(null);
   const seedSlips = useCallback((list: string[]) => {
     movingRef.current = false;
     slipsRef.current = list.slice(0, 80).map((name, i) => ({
@@ -350,6 +354,10 @@ export default function Home() {
         );
       })
       .catch(() => setAuthState("signed-out"));
+    try {
+      const saved = window.sessionStorage.getItem("raffle-drum-display-control");
+      if (saved) setDisplaySession(JSON.parse(saved));
+    } catch {}
   }, []);
   useEffect(() => {
     if (authState !== "signed-in") return;
@@ -379,6 +387,21 @@ export default function Home() {
       channel.postMessage(displayState);
       channel.close();
     }
+    if (!verifiedRaffle && displaySession) {
+      void fetch(`/api/display/${encodeURIComponent(displaySession.id)}`, {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${displaySession.controlKey}`,
+        },
+        body: JSON.stringify({ state: displayState }),
+      }).then((response) => {
+        if (response.status === 404 || response.status === 410) {
+          window.sessionStorage.removeItem("raffle-drum-display-control");
+          setDisplaySession(null);
+        }
+      }).catch(() => {});
+    }
   }, [
     authState,
     celebrating,
@@ -391,6 +414,29 @@ export default function Home() {
     verifiedRaffle,
     winner,
     winnerNumber,
+    displaySession,
+  ]);
+  useEffect(() => {
+    const hasRaffleToProtect =
+      !!text.trim() ||
+      names.length > 0 ||
+      history.length > 0 ||
+      storedTickets.length > 0 ||
+      !!verifiedRaffle;
+    if (authState !== "signed-in" || !hasRaffleToProtect) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [
+    authState,
+    history.length,
+    names.length,
+    storedTickets.length,
+    text,
+    verifiedRaffle,
   ]);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -829,6 +875,66 @@ export default function Home() {
       window.prompt("Copy this public verification link:", shareUrl);
     }
   };
+  const openPublicDisplay = async () => {
+    if (verifiedRaffle) {
+      window.open(
+        `/display?id=${encodeURIComponent(verifiedRaffle.id)}&spin=${spinSeconds}`,
+        "raffle-drum-display",
+      );
+      return;
+    }
+    if (!names.length) {
+      setError("Load at least one ticket before opening the public display.");
+      return;
+    }
+    const tab = window.open("about:blank", "raffle-drum-display");
+    try {
+      let session = displaySession;
+      if (!session) {
+        const state = {
+            names: names.slice(0, 80).map(drumDisplayName),
+            ticketCount: names.length,
+            spinning,
+            winner: winner ? drumDisplayName(winner) : null,
+            winnerNumber,
+            message,
+            celebrating,
+            verified: false,
+            qrCode: "",
+            shareUrl: "",
+            storedTickets: storedTickets.map((ticket) => ({
+              name: drumDisplayName(ticket.name),
+              number: ticket.number,
+            })),
+            updatedAt: Date.now(),
+          },
+          response = await fetch("/api/display", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ state }),
+          }),
+          data = await response.json();
+        if (!response.ok)
+          throw new Error(data.error ?? "The public display could not be opened.");
+        session = data as DisplaySession;
+        setDisplaySession(session);
+        window.sessionStorage.setItem(
+          "raffle-drum-display-control",
+          JSON.stringify(session),
+        );
+      }
+      const url = `/display?session=${encodeURIComponent(session.id)}`;
+      if (tab) tab.location.href = url;
+      else window.open(url, "raffle-drum-display");
+    } catch (reason) {
+      tab?.close();
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "The public display could not be opened.",
+      );
+    }
+  };
   const reset = () => {
     drawRef.current++;
     beaconWaitRef.current++;
@@ -1080,7 +1186,7 @@ export default function Home() {
         <div className="header-actions">
           <button
             className="public-display-button"
-            onClick={() => window.open("/display", "raffle-drum-display")}
+            onClick={() => void openPublicDisplay()}
           >
             <MonitorUp />
             Open public drum view
@@ -1356,6 +1462,14 @@ export default function Home() {
                       {verifiedRaffle.manifestHash.slice(0, 12)}…
                     </dd>
                   </div>
+                  {verifiedRaffle.publicManifestHash && (
+                    <div>
+                      <dt>Public ticket-ledger fingerprint</dt>
+                      <dd title={verifiedRaffle.publicManifestHash}>
+                        {verifiedRaffle.publicManifestHash.slice(0, 12)}…
+                      </dd>
+                    </div>
+                  )}
                 </dl>
                 {qrCode && (
                   <img
